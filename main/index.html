@@ -1,1 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Gnoke Irrigation</title>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet"       href="../style.css" />
+  <link rel="icon"             type="image/png"   href="../global.png" />
+  <link rel="apple-touch-icon"                    href="../global.png" />
+  <link rel="manifest"                            href="../manifest.json" />
+
+  <!-- Anti-FOUC -->
+  <script>
+    (function () {
+      var t = localStorage.getItem('gnoke_irrigation_theme');
+      if (t) document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js');
+  </script>
+
+  <style>
+    /* ── Irrigation accent (overrides style.css base) ── */
+    :root {
+      --accent:     #2e7d32;
+      --accent-dk:  #1b5e20;
+      --accent-lt:  #e8f5e9;
+      --accent-txt: #1b5e20;
+    }
+    [data-theme="dark"] {
+      --accent-lt:  rgba(46,125,50,.15);
+      --accent-txt: #81c784;
+    }
+
+    /* ── Zone card ── */
+    .zone-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: border-color var(--transition);
+    }
+    .zone-card:hover { border-color: var(--border2); }
+    .zone-card.active {
+      border-color: var(--accent);
+      background: var(--accent-lt);
+    }
+
+    .zone-indicator {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--border2);
+      flex-shrink: 0;
+      transition: background var(--transition);
+    }
+    .zone-card.active .zone-indicator { background: var(--accent); }
+
+    .zone-info  { flex: 1; min-width: 0; }
+    .zone-name  {
+      font-weight: 600; font-size: .9rem;
+      color: var(--text); white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .zone-meta  {
+      font-family: var(--font-mono);
+      font-size: .65rem; letter-spacing: .04em;
+      color: var(--muted); margin-top: 3px;
+    }
+    .zone-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    /* ── Schedule row ── */
+    .sched-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .sched-row:last-child { border-bottom: none; }
+    .sched-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); flex-shrink: 0;
+    }
+    .sched-info { flex: 1; min-width: 0; }
+    .sched-label { font-size: .86rem; font-weight: 500; color: var(--text); }
+    .sched-meta  {
+      font-family: var(--font-mono);
+      font-size: .63rem; color: var(--muted); margin-top: 2px;
+    }
+
+    /* ── Stat cards ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 12px;
+      text-align: center;
+    }
+    .stat-value {
+      font-family: var(--font-display);
+      font-size: 1.5rem; font-weight: 700;
+      color: var(--accent); line-height: 1;
+    }
+    .stat-label {
+      font-family: var(--font-mono);
+      font-size: .58rem; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--muted);
+      margin-top: 5px;
+    }
+
+    @media (max-width: 400px) {
+      .stat-grid { grid-template-columns: 1fr 1fr; }
+      .stat-card:last-child { grid-column: 1 / -1; }
+    }
+
+    /* ── Chip (used by connections.js) ── */
+    .chip {
+      display: inline-block;
+      padding: 3px 10px; border-radius: 20px;
+      font-family: var(--font-mono); font-size: .68rem;
+      letter-spacing: .06em; font-weight: 500;
+    }
+    .chip.ok   { background: var(--green-lt);  color: var(--green);  border: 1px solid rgba(45,110,78,.2); }
+    .chip.info { background: var(--accent-lt); color: var(--accent-txt); border: 1px solid rgba(46,125,50,.2); }
+
+    /* ── connections.js injects its page into #main-content.
+          Give it the same form-card styles it expects ── */
+    #connections-page .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+    #connections-page .label {
+      display: block; font-family: var(--font-mono);
+      font-size: .68rem; font-weight: 500; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--text2); margin-bottom: 5px;
+    }
+    #connections-page .input {
+      width: 100%; padding: 8px 12px;
+      border: 1.5px solid var(--border); border-radius: 8px;
+      background: var(--surface); color: var(--text);
+      font-size: .88rem; font-family: var(--font-sans);
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    #connections-page .input:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-lt);
+    }
+    .btn-secondary {
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border); padding: 7px 14px;
+      border-radius: 8px; font-size: .82rem; font-weight: 500;
+      cursor: pointer; font-family: var(--font-sans);
+      transition: border-color var(--transition), color var(--transition);
+    }
+    .btn-secondary:hover { border-color: var(--border2); color: var(--text); }
+  </style>
+</head>
+<body>
+
+<!-- LOADING OVERLAY -->
+<div id="loading-overlay">
+  <div class="loader-dots">
+    <div class="loader-dot"></div>
+    <div class="loader-dot"></div>
+    <div class="loader-dot"></div>
+  </div>
+  <span class="loader-text">Loading…</span>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     TOPBAR
+════════════════════════════════════════ -->
+<div id="topbar">
+  <button id="hamburger" title="Menu" onclick="Drawer.open()">&#9776;</button>
+
+  <div id="brand" onclick="loadPage('zones-page')">
+    <span id="brand-gnoke">Gnoke</span>
+    <span id="brand-app">Irrigation</span>
+  </div>
+
+  <span id="context-info"></span>
+  <div class="topbar-spacer"></div>
+
+  <div class="menu-group" id="menu-group">
+
+    <div class="menu">
+      <button class="menu-btn">Zones</button>
+      <div class="menu-content">
+        <button onclick="loadPage('zones-page')">All Zones</button>
+        <button onclick="UI.openModal('add-zone-modal')">+ Add Zone</button>
+      </div>
+    </div>
+
+    <div class="menu">
+      <button class="menu-btn">Schedules</button>
+      <div class="menu-content">
+        <button onclick="loadPage('schedules-page')">All Schedules</button>
+        <button onclick="openAddScheduleModal()">+ Add Schedule</button>
+      </div>
+    </div>
+
+    <div class="menu">
+      <button class="menu-btn">Log</button>
+      <div class="menu-content">
+        <button onclick="loadPage('log-page')">Usage Log</button>
+        <button onclick="exportLog()">Export CSV</button>
+      </div>
+    </div>
+
+    <div class="menu">
+      <button class="menu-btn">About</button>
+      <div class="menu-content">
+        <button onclick="loadPage('about-page')">About Irrigation</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="topbar-right">
+    <span id="status-chip">saved</span>
+    <button class="icon-btn" id="theme-toggle" title="Toggle theme">🌙</button>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     PAGES
+════════════════════════════════════════ -->
+<main class="pages" id="main-content">
+
+  <!-- ── ZONES PAGE ── -->
+  <section id="zones-page" class="page active">
+    <div class="page-content">
+
+      <div class="page-header">
+        <div>
+          <h1>Zones</h1>
+          <p class="sub" id="zones-sub">Loading…</p>
+        </div>
+        <button class="btn btn-primary" onclick="UI.openModal('add-zone-modal')">+ Add Zone</button>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-zones">0</div>
+          <div class="stat-label">Zones</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-active">0</div>
+          <div class="stat-label">Active Now</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-today">0</div>
+          <div class="stat-label">Runs Today</div>
+        </div>
+      </div>
+
+      <div class="form-card" style="padding:12px;">
+        <div id="zones-list">
+          <p class="hint" style="text-align:center;padding:24px;">No zones yet. Add one above.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- ── SCHEDULES PAGE ── -->
+  <section id="schedules-page" class="page">
+    <div class="page-content">
+
+      <div class="page-header">
+        <div>
+          <h1>Schedules</h1>
+          <p class="sub">Automatic irrigation timing</p>
+        </div>
+        <button class="btn btn-primary" onclick="openAddScheduleModal()">+ Add Schedule</button>
+      </div>
+
+      <div class="form-card" style="padding:12px 16px;">
+        <div id="schedules-list">
+          <p class="hint" style="text-align:center;padding:24px;">No schedules yet.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- ── LOG PAGE ── -->
+  <section id="log-page" class="page">
+    <div class="page-content">
+
+      <div class="page-header">
+        <div>
+          <h1>Usage Log</h1>
+          <p class="sub">All irrigation activity</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="exportLog()">Export CSV</button>
+      </div>
+
+      <div class="form-card" style="padding:0;">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Zone</th>
+                <th>Duration</th>
+                <th>Trigger</th>
+                <th class="num">Litres</th>
+              </tr>
+            </thead>
+            <tbody id="log-tbody">
+              <tr><td colspan="5" class="empty-cell">No log entries yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- ── ABOUT PAGE ── -->
+  <section id="about-page" class="page">
+    <div class="page-content">
+      <div class="page-header">
+        <div>
+          <h1>About</h1>
+          <p class="sub">Gnoke Irrigation · v1.0</p>
+        </div>
+        <button class="btn btn-ghost" id="btn-check-update">🔄 Check for Updates</button>
+      </div>
+
+      <div class="card-grid">
+        <div class="form-card">
+          <h2 class="card-title">💧 Gnoke Irrigation</h2>
+          <p class="hint">
+            Schedule, monitor, and log your irrigation zones — entirely offline.
+            Built for farmers, gardeners, and smallholders.<br /><br />
+            Your data never leaves the device.
+          </p>
+        </div>
+
+        <div class="form-card">
+          <h2 class="card-title">⚙️ Under The Hood</h2>
+          <table class="about-table">
+            <tbody id="about-tech-table"></tbody>
+          </table>
+        </div>
+
+        <div class="form-card">
+          <h2 class="card-title">👤 Author</h2>
+          <p class="hint">
+            <strong>Edmund Sparrow</strong><br />
+            Part of the <strong>Gnoke Suite</strong> — offline-first tools
+            for developers, retailers, and independent builders.
+          </p>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+            <a class="btn btn-outline" href="mailto:hello@gnoke.app">✉ Email</a>
+            <a class="btn btn-outline" href="https://github.com/edmundsparrow" target="_blank" rel="noopener">⌥ GitHub</a>
+            <a class="btn btn-outline" href="https://selar.com/showlove/edmundsparrow" target="_blank" rel="noopener">❤️ Coffee</a>
+          </div>
+        </div>
+
+        <div class="form-card" id="update-card">
+          <h2 class="card-title">🔄 Updates</h2>
+          <p class="hint">Running <strong>v1.0</strong>. Click "Check for Updates" above.</p>
+        </div>
+
+        <div class="form-card">
+          <h2 class="card-title">📜 License</h2>
+          <p class="hint">
+            Free and open source under the <strong>GNU General Public License v3.0</strong>.<br /><br />
+            Use it, modify it, share it — but keep it open.
+          </p>
+          <p class="hint" style="margin-top:10px;font-family:var(--font-mono);font-size:.68rem;color:var(--muted)">
+            © 2026 Edmund Sparrow — Gnoke Suite
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+
+<!-- ════════════════════════════════════════
+     MODALS
+════════════════════════════════════════ -->
+
+<!-- Add Zone -->
+<div class="modal-overlay" id="add-zone-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Add Zone</h3>
+      <button class="modal-close" onclick="UI.closeModal('add-zone-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="zone-name-input">Zone Name</label>
+        <input type="text" id="zone-name-input" placeholder="e.g. Front Garden" />
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0">
+          <label for="zone-flow-input">Flow Rate (L/min)</label>
+          <input type="number" id="zone-flow-input" placeholder="12" min="1" max="200" />
+        </div>
+        <div class="form-group" style="margin:0">
+          <label for="zone-notes-input">Notes</label>
+          <input type="text" id="zone-notes-input" placeholder="Optional" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost"   onclick="UI.closeModal('add-zone-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveZone()">Add Zone</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Schedule -->
+<div class="modal-overlay" id="add-schedule-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Add Schedule</h3>
+      <button class="modal-close" onclick="UI.closeModal('add-schedule-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="sched-zone-select">Zone</label>
+        <select id="sched-zone-select"></select>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0">
+          <label for="sched-time-input">Start Time</label>
+          <input type="time" id="sched-time-input" value="06:00" />
+        </div>
+        <div class="form-group" style="margin:0">
+          <label for="sched-duration-input">Duration (min)</label>
+          <input type="number" id="sched-duration-input" placeholder="20" min="1" max="240" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Days</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;" id="days-picker">
+          <!-- Injected by app.js -->
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost"   onclick="UI.closeModal('add-schedule-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSchedule()">Add Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="confirm-title">Confirm</h3>
+      <button class="modal-close" onclick="UI.closeModal('confirm-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="confirm-body">Are you sure?</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost"  onclick="UI.closeModal('confirm-modal')">Cancel</button>
+      <button class="btn btn-danger" id="confirm-ok-btn">Delete</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="toast"></div>
+
+<!-- Drawer -->
+<div id="drawer-overlay" onclick="Drawer.close()"></div>
+<nav id="drawer" aria-label="Mobile navigation">
+  <div id="drawer-header">
+    <div id="drawer-brand">
+      <span id="drawer-gnoke">Gnoke</span>
+      <span id="drawer-app">Irrigation</span>
+    </div>
+    <button id="drawer-close" onclick="Drawer.close()" title="Close">✕</button>
+  </div>
+
+  <div class="drawer-section">Zones</div>
+  <button class="drawer-btn" onclick="loadPage('zones-page');Drawer.close();">All Zones</button>
+  <button class="drawer-btn" onclick="UI.openModal('add-zone-modal');Drawer.close();">+ Add Zone</button>
+
+  <div class="drawer-section">Schedules</div>
+  <button class="drawer-btn" onclick="loadPage('schedules-page');Drawer.close();">All Schedules</button>
+  <button class="drawer-btn" onclick="openAddScheduleModal();Drawer.close();">+ Add Schedule</button>
+
+  <div class="drawer-section">More</div>
+  <button class="drawer-btn" onclick="loadPage('log-page');Drawer.close();">Usage Log</button>
+  <button class="drawer-btn" onclick="loadPage('about-page');Drawer.close();">About</button>
+  <!-- connections.js appends 🔌 Connection here via _patchDrawer() -->
+</nav>
+
+
+<!-- ════════════════════════════════════════
+     SCRIPTS — standard load order
+════════════════════════════════════════ -->
+<script src="../js/state.js"></script>
+<script src="../js/theme.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/update.js"></script>
+<script src="../js/app.js"></script>
+<script src="../js/connections.js"></script>
+
+</body>
+</html>
